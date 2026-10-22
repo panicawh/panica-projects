@@ -1,0 +1,811 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>Паника-миниигры</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700&family=Manrope:wght@500;600;700&family=JetBrains+Mono:wght@500&display=swap">
+<style>
+/* Layout: one narrow column. Title on top, score row, square board, tray of three pieces, buttons.
+   Palette: pure black ground, white ink, grey for secondary text. The picture lives inside the cells. Single monochrome look by choice. */
+:root {
+  --bg: #000;
+  --fg: #fff;
+  --muted: #8f8f8f;
+  --line: #2b2b2b;
+  --panel: #0b0b0b;
+  --block: #d6d6d6;
+  --font-display: "Unbounded", "Arial Black", system-ui, sans-serif;
+  --font-body: "Manrope", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
+  color-scheme: dark;
+}
+body {
+  margin: 0;
+  padding-block: 18px 28px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  background-color: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-body);
+  font-size: 16px;
+  line-height: 1.5;
+  -webkit-tap-highlight-color: transparent;
+}
+.game { max-width: 480px; margin: 0 auto; display: flex; flex-direction: column; gap: 18px; }
+
+/* Header */
+.top { padding-bottom: 14px; border-bottom: 1px solid var(--fg); }
+.top h1 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: clamp(1.25rem, 5.6vw, 1.8rem);
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+}
+.top .sub {
+  margin-top: 8px;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* Score */
+.stats { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; }
+.stats .k {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.stats b {
+  display: block;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: clamp(1.6rem, 7vw, 2.2rem);
+  line-height: 1.15;
+  font-variant-numeric: tabular-nums;
+}
+.stats .r { text-align: right; }
+
+/* Board */
+.boardwrap { position: relative; }
+.boardwrap.shake { animation: shake 0.34s ease-out; }
+@keyframes shake {
+  0%, 100% { transform: none; }
+  20% { transform: translate(-4px, 2px); }
+  40% { transform: translate(4px, -2px); }
+  60% { transform: translate(-2px, -1px); }
+  80% { transform: translate(2px, 1px); }
+}
+.board {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  grid-template-rows: repeat(8, 1fr);
+  aspect-ratio: 1;
+  background: var(--bg);
+  border: 2px solid var(--fg);
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.cell {
+  position: relative;
+  background-image: var(--img);
+  background-size: 800% 800%;
+  background-color: #111;
+}
+.cell::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: #000;
+  opacity: 0.86;
+  transition: opacity 0.22s ease;
+}
+.cell::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.13);
+  transition: box-shadow 0.15s ease;
+}
+.cell.on::after { opacity: 0; }
+.cell.on::before {
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.7), inset 2px 2px 0 rgba(255, 255, 255, 0.22), inset -2px -2px 0 rgba(0, 0, 0, 0.3);
+}
+.cell.hint::after { opacity: 0.3; }
+.cell.hint::before { box-shadow: inset 0 0 0 2px var(--fg); }
+.cell.pre::after { opacity: 0; }
+.cell.pre::before { box-shadow: inset 0 0 0 2px var(--fg); }
+.board.reveal .cell::after { opacity: 0; transition: opacity 0.5s ease; }
+.cell.drop { z-index: 1; animation: drop 0.28s cubic-bezier(0.2, 0.9, 0.3, 1.3); }
+@keyframes drop {
+  0% { transform: scale(0.72); }
+  100% { transform: scale(1); }
+}
+
+/* Plain mode: no picture. Blocks are an off-white grey, distinct from the pure white interface */
+.game.plain .cell { background-image: none; }
+.game.plain .cell.on { background-color: var(--block); }
+.game.plain .cell.on::before {
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.6), inset 2px 2px 0 rgba(255, 255, 255, 0.55), inset -2px -2px 0 rgba(0, 0, 0, 0.2);
+}
+.game.plain .cell.hint { background-color: #3d3d3d; }
+.game.plain .cell.hint::after { opacity: 0; }
+.game.plain .cell.hint::before, .game.plain .cell.pre::before { box-shadow: inset 0 0 0 2px #fff; }
+.game.plain .fx {
+  background-image: none;
+  background-color: var(--block);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.6), inset 2px 2px 0 rgba(255, 255, 255, 0.55), inset -2px -2px 0 rgba(0, 0, 0, 0.2);
+}
+.game.plain .thumb { background-image: none; background-color: var(--block); }
+
+/* Cleared cells fly out as overlays, so the game never waits for them */
+.fxlayer { position: absolute; left: 2px; top: 2px; right: 2px; bottom: 2px; z-index: 4; pointer-events: none; }
+.fx {
+  position: absolute;
+  width: 12.5%;
+  height: 12.5%;
+  background-image: var(--img);
+  background-size: 800% 800%;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.7), inset 2px 2px 0 rgba(255, 255, 255, 0.22), inset -2px -2px 0 rgba(0, 0, 0, 0.3);
+  animation: fxout 0.46s cubic-bezier(0.35, 0.1, 0.3, 1) var(--d, 0ms) both;
+}
+.fx::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: #fff;
+  animation: fxflash 0.46s ease-out var(--d, 0ms) both;
+}
+@keyframes fxout {
+  0% { transform: scale(1); opacity: 1; }
+  30% { transform: scale(1.14); opacity: 1; }
+  100% { transform: scale(0.1); opacity: 0; }
+}
+@keyframes fxflash {
+  0% { opacity: 0; }
+  28% { opacity: 0.96; }
+  100% { opacity: 0.96; }
+}
+
+.toast {
+  position: absolute;
+  left: 50%;
+  top: 44%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 18px;
+  background: #000;
+  color: #fff;
+  border: 2px solid #fff;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  z-index: 5;
+}
+.toast .c {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+}
+.toast .p {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: clamp(1.3rem, 6.5vw, 1.9rem);
+  line-height: 1.15;
+}
+.toast.big .p { font-size: clamp(1.8rem, 9vw, 2.6rem); }
+.toast.show { animation: pop 1.15s ease-out forwards; }
+@keyframes pop {
+  0% { opacity: 0; transform: translate(-50%, -35%) scale(0.7); }
+  16% { opacity: 1; transform: translate(-50%, -50%) scale(1.1); }
+  26% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  72% { opacity: 1; transform: translate(-50%, -53%) scale(1); }
+  100% { opacity: 0; transform: translate(-50%, -88%) scale(1); }
+}
+
+.over {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 8px;
+  text-align: center;
+  background: rgba(0, 0, 0, 0.86);
+}
+.over:not([hidden]) { animation: fadein 0.4s ease both; }
+@keyframes fadein { from { opacity: 0; } to { opacity: 1; } }
+.over .t { font-family: var(--font-display); font-weight: 700; font-size: clamp(1.4rem, 7vw, 2rem); }
+.over .s { font-family: var(--font-mono); font-size: 0.8rem; letter-spacing: 0.2em; text-transform: uppercase; color: var(--muted); }
+.over .n { font-family: var(--font-display); font-weight: 700; font-size: 2.6rem; line-height: 1.1; margin-bottom: 8px; }
+
+/* Tray */
+.tray { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.slot {
+  display: grid;
+  place-items: center;
+  height: calc(5 * var(--pc) + 28px);
+  --pc: clamp(12px, 4.4vw, 22px);
+  border: 1px solid var(--line);
+  background: var(--panel);
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  cursor: grab;
+}
+.slot.lifted .pgrid { opacity: 0.18; }
+.slot.empty { cursor: default; }
+.pgrid { display: grid; grid-template-columns: repeat(var(--w), var(--pc)); grid-template-rows: repeat(var(--h), var(--pc)); transition: opacity 0.15s; }
+.pgrid.rise { animation: rise 0.34s cubic-bezier(0.2, 0.8, 0.2, 1) backwards; }
+@keyframes rise {
+  from { opacity: 0; transform: translateY(18px) scale(0.85); }
+  to { opacity: 1; transform: none; }
+}
+.pc { width: var(--pc); height: var(--pc); }
+.pc.f {
+  background: var(--block);
+  box-shadow: inset 0 0 0 1px #000, inset 2px 2px 0 rgba(255, 255, 255, 0.55), inset -2px -2px 0 rgba(0, 0, 0, 0.2);
+}
+.ghost { position: fixed; left: 0; top: 0; z-index: 50; pointer-events: none; animation: grow 0.14s ease-out; }
+.ghost .pgrid { opacity: 0.95; }
+@keyframes grow { from { scale: 0.6; } to { scale: 1; } }
+
+.help { margin: 0; font-size: 0.82rem; color: var(--muted); }
+
+/* Buttons and picture preview */
+.bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.thumb {
+  width: 44px;
+  height: 44px;
+  flex: none;
+  border: 1px solid #fff;
+  background-image: var(--img);
+  background-size: cover;
+  background-position: center;
+}
+.btn {
+  position: relative;
+  display: inline-block;
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 700;
+  line-height: 1.5;
+  color: #fff;
+  background: transparent;
+  border: 1px solid #fff;
+  border-radius: 999px;
+  padding: 10px 18px;
+  cursor: pointer;
+}
+.btn:hover { background: #1a1a1a; }
+.btn.solid { background: #fff; color: #000; }
+.btn.solid:hover { background: #d9d9d9; }
+.btn:focus-visible, .btn:focus-within, .slot:focus-visible { outline: 2px solid #fff; outline-offset: 3px; }
+.vh { position: absolute; width: 1px; height: 1px; opacity: 0; overflow: hidden; clip: rect(0 0 0 0); }
+
+@media (prefers-reduced-motion: reduce) {
+  .fx, .fx::after { animation-duration: 1ms !important; animation-delay: 0s !important; }
+  .cell.drop, .boardwrap.shake, .pgrid.rise, .ghost { animation: none !important; }
+  .toast.show { animation: fade 1s linear forwards; }
+  @keyframes fade { 0%, 70% { opacity: 1; } 100% { opacity: 0; } }
+}
+</style>
+
+<div class="game" id="game">
+  <header class="top">
+    <h1>паника-миниигры</h1>
+    <div class="sub">блоки · бесконечный режим</div>
+  </header>
+
+  <div class="stats">
+    <div><span class="k">счёт</span><b id="score">0</b></div>
+    <div class="r"><span class="k">рекорд</span><b id="best">0</b></div>
+  </div>
+
+  <div class="boardwrap" id="boardwrap">
+    <div class="board" id="board" role="application" aria-label="Игровое поле 8 на 8"></div>
+    <div class="fxlayer" id="fx"></div>
+    <div class="toast" id="toast" aria-live="polite"></div>
+    <div class="over" id="over" hidden>
+      <div class="t">нет места</div>
+      <div class="s">твой счёт</div>
+      <div class="n" id="overScore">0</div>
+      <button class="btn solid" id="again" type="button">Ещё раз</button>
+    </div>
+  </div>
+
+  <div class="tray" id="tray">
+    <div class="slot" data-i="0" aria-label="Блок 1"></div>
+    <div class="slot" data-i="1" aria-label="Блок 2"></div>
+    <div class="slot" data-i="2" aria-label="Блок 3"></div>
+  </div>
+
+  <p class="help">Тащи блоки на поле. Заполненная линия или столбец сгорает, и так без конца. Загрузи своё фото, и блоки соберут его.</p>
+
+  <div class="bar">
+    <div class="thumb" id="thumb" aria-hidden="true"></div>
+    <label class="btn" id="custom">Своё фото<input class="vh" id="file" type="file" accept="image/*"></label>
+    <button class="btn" id="original" type="button" hidden>Белые блоки</button>
+    <button class="btn" id="restart" type="button">Заново</button>
+  </div>
+</div>
+
+<script>
+(function () {
+  var N = 8;
+  var $ = function (id) { return document.getElementById(id); };
+  var gameEl = $('game'), boardEl = $('board'), wrapEl = $('boardwrap'), fxEl = $('fx'), trayEl = $('tray');
+  var scoreEl = $('score'), bestEl = $('best'), overEl = $('over'), overScoreEl = $('overScore'), toastEl = $('toast');
+  var fileEl = $('file'), btnOriginal = $('original'), btnRestart = $('restart'), btnAgain = $('again');
+  var slots = Array.prototype.slice.call(trayEl.querySelectorAll('.slot'));
+  var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  var grid, pieces, score = 0, shown = 0, best = 0, streak, over;
+  var cells = [];
+  var hinted = [];
+  var drag = null;
+  var scoreRaf = 0, overTimer = 0;
+
+  // ---------- best score (per viewer, optional) ----------
+  var KEY = 'panika-blocks-best';
+  try { best = parseInt(localStorage.getItem(KEY), 10) || 0; } catch (e) { best = 0; }
+  function saveBest() { try { localStorage.setItem(KEY, String(best)); } catch (e) {} }
+
+  // ---------- picture ----------
+  // no url = plain off-white blocks; a url = the player's own photo inside the blocks
+  function setImage(url) {
+    if (url) {
+      gameEl.classList.remove('plain');
+      gameEl.style.setProperty('--img', 'url("' + url + '")');
+    } else {
+      gameEl.classList.add('plain');
+      gameEl.style.setProperty('--img', 'none');
+    }
+  }
+  function reveal() {
+    boardEl.classList.add('reveal');
+    setTimeout(function () { boardEl.classList.remove('reveal'); }, 1500);
+  }
+
+  // ---------- pieces ----------
+  function norm(cs) {
+    var minR = 99, minC = 99, k;
+    for (k = 0; k < cs.length; k++) { minR = Math.min(minR, cs[k][0]); minC = Math.min(minC, cs[k][1]); }
+    return cs.map(function (p) { return [p[0] - minR, p[1] - minC]; });
+  }
+  function rot(cs) { return norm(cs.map(function (p) { return [p[1], -p[0]]; })); }
+  function dims(cs) {
+    var h = 0, w = 0;
+    cs.forEach(function (p) { h = Math.max(h, p[0] + 1); w = Math.max(w, p[1] + 1); });
+    return { w: w, h: h };
+  }
+  function variants(base) {
+    var out = [], seen = {}, cur = norm(base), k;
+    for (k = 0; k < 4; k++) {
+      var key = cur.map(function (p) { return p.join(','); }).sort().join(';');
+      if (!seen[key]) {
+        seen[key] = 1;
+        var d = dims(cur);
+        out.push({ cells: cur, w: d.w, h: d.h });
+      }
+      cur = rot(cur);
+    }
+    return out;
+  }
+  var BASES = [
+    [1, [[0, 0]]],
+    [2, [[0, 0], [0, 1]]],
+    [3, [[0, 0], [0, 1], [0, 2]]],
+    [2, [[0, 0], [0, 1], [0, 2], [0, 3]]],
+    [1, [[0, 0], [0, 1], [0, 2], [0, 3], [0, 4]]],
+    [3, [[0, 0], [0, 1], [1, 0], [1, 1]]],
+    [1, [[0, 0], [0, 1], [0, 2], [1, 0], [1, 1], [1, 2], [2, 0], [2, 1], [2, 2]]],
+    [3, [[0, 0], [1, 0], [1, 1]]],
+    [2, [[0, 0], [1, 0], [2, 0], [2, 1]]],
+    [1, [[0, 0], [1, 0], [2, 0], [2, 1], [2, 2]]],
+    [2, [[0, 0], [0, 1], [0, 2], [1, 1]]],
+    [2, [[0, 0], [0, 1], [1, 1], [1, 2]]],
+    [2, [[0, 1], [0, 2], [1, 0], [1, 1]]],
+    [1, [[0, 0], [0, 1], [0, 2], [1, 0], [1, 1], [1, 2]]]
+  ].map(function (b) { return { weight: b[0], vars: variants(b[1]) }; });
+  var TOTAL_W = BASES.reduce(function (s, b) { return s + b.weight; }, 0);
+
+  function gen() {
+    var r = Math.random() * TOTAL_W, k = 0;
+    while (k < BASES.length - 1 && r >= BASES[k].weight) { r -= BASES[k].weight; k++; }
+    var vs = BASES[k].vars;
+    var v = vs[Math.floor(Math.random() * vs.length)];
+    return { cells: v.cells, w: v.w, h: v.h };   // fresh object per piece
+  }
+  function canPlace(p, r0, c0) {
+    for (var k = 0; k < p.cells.length; k++) {
+      var r = r0 + p.cells[k][0], c = c0 + p.cells[k][1];
+      if (r < 0 || c < 0 || r >= N || c >= N || grid[r][c]) return false;
+    }
+    return true;
+  }
+  function fits(p) {
+    for (var r = 0; r <= N - p.h; r++) for (var c = 0; c <= N - p.w; c++) if (canPlace(p, r, c)) return true;
+    return false;
+  }
+  function newBatch() {
+    for (var t = 0; t < 40; t++) {
+      var b = [gen(), gen(), gen()];
+      if (b.some(fits)) { pieces = b; return; }
+    }
+    pieces = [{ cells: [[0, 0]], w: 1, h: 1 }, { cells: [[0, 0]], w: 1, h: 1 }, { cells: [[0, 0]], w: 1, h: 1 }];
+  }
+
+  // full rows and columns, optionally as if `extra` cells (list of [r,c]) were already filled
+  function findLines(extra) {
+    var add = {};
+    (extra || []).forEach(function (q) { add[q[0] * N + q[1]] = 1; });
+    var filled = function (r, c) { return grid[r][c] || add[r * N + c]; };
+    var rows = [], cols = [], r, c, ok;
+    for (r = 0; r < N; r++) {
+      ok = true;
+      for (c = 0; c < N; c++) if (!filled(r, c)) { ok = false; break; }
+      if (ok) rows.push(r);
+    }
+    for (c = 0; c < N; c++) {
+      ok = true;
+      for (r = 0; r < N; r++) if (!filled(r, c)) { ok = false; break; }
+      if (ok) cols.push(c);
+    }
+    return { rows: rows, cols: cols };
+  }
+
+  // ---------- rendering ----------
+  function buildBoard() {
+    for (var i = 0; i < N * N; i++) {
+      var d = document.createElement('div');
+      d.className = 'cell';
+      d.style.backgroundPosition = ((i % N) * 100 / (N - 1)) + '% ' + (Math.floor(i / N) * 100 / (N - 1)) + '%';
+      boardEl.appendChild(d);
+      cells.push(d);
+    }
+  }
+  function renderBoard() {
+    for (var r = 0; r < N; r++) for (var c = 0; c < N; c++) {
+      cells[r * N + c].classList.toggle('on', !!grid[r][c]);
+    }
+  }
+  function pieceEl(p, px) {
+    var g = document.createElement('div');
+    g.className = 'pgrid';
+    g.style.setProperty('--w', p.w);
+    g.style.setProperty('--h', p.h);
+    if (px) g.style.setProperty('--pc', px + 'px');
+    var on = {};
+    p.cells.forEach(function (q) { on[q[0] + ',' + q[1]] = 1; });
+    for (var r = 0; r < p.h; r++) for (var c = 0; c < p.w; c++) {
+      var d = document.createElement('div');
+      d.className = 'pc' + (on[r + ',' + c] ? ' f' : '');
+      g.appendChild(d);
+    }
+    return g;
+  }
+  // only slots whose piece changed are rebuilt, so the others do not replay the entrance
+  function renderTray() {
+    slots.forEach(function (s, i) {
+      var p = pieces[i];
+      if (s._p === p) return;
+      s._p = p;
+      s.innerHTML = '';
+      s.classList.remove('lifted');
+      s.classList.toggle('empty', !p);
+      if (p) {
+        var el = pieceEl(p);
+        el.classList.add('rise');
+        el.style.animationDelay = (i * 70) + 'ms';
+        s.appendChild(el);
+      }
+    });
+  }
+  function tweenScore(to, instant) {
+    cancelAnimationFrame(scoreRaf);
+    if (instant || reduce) { shown = to; scoreEl.textContent = String(to); return; }
+    var from = shown, t0 = performance.now();
+    var dur = Math.min(700, 250 + Math.abs(to - from) * 3);
+    function step(t) {
+      var k = Math.min(1, (t - t0) / dur);
+      k = 1 - Math.pow(1 - k, 3);
+      shown = Math.round(from + (to - from) * k);
+      scoreEl.textContent = String(shown);
+      if (k < 1) scoreRaf = requestAnimationFrame(step);
+    }
+    scoreRaf = requestAnimationFrame(step);
+  }
+  function setScore(v, instant) {
+    score = v;
+    tweenScore(v, instant);
+    if (score > best) { best = score; saveBest(); }
+    bestEl.textContent = String(best);
+  }
+  function plural(n) { return n === 1 ? 'линия' : (n >= 2 && n <= 4 ? 'линии' : 'линий'); }
+  function showToast(main, sub, big) {
+    toastEl.innerHTML = '';
+    if (sub) {
+      var s = document.createElement('span');
+      s.className = 'c';
+      s.textContent = sub;
+      toastEl.appendChild(s);
+    }
+    var m = document.createElement('span');
+    m.className = 'p';
+    m.textContent = main;
+    toastEl.appendChild(m);
+    toastEl.classList.toggle('big', !!big);
+    toastEl.classList.remove('show');
+    void toastEl.offsetWidth;
+    toastEl.classList.add('show');
+  }
+  function shake() {
+    if (reduce) return;
+    wrapEl.classList.remove('shake');
+    void wrapEl.offsetWidth;
+    wrapEl.classList.add('shake');
+    setTimeout(function () { wrapEl.classList.remove('shake'); }, 360);
+  }
+  function popCells(idxs) {
+    idxs.forEach(function (k) {
+      var el = cells[k];
+      el.classList.remove('drop');
+      void el.offsetWidth;
+      el.classList.add('drop');
+      setTimeout(function () { el.classList.remove('drop'); }, 320);
+    });
+  }
+  // clear animation: overlays fly out in a wave from the placed piece, while the real cells are already free
+  function spawnFx(idxs, cr, cc) {
+    idxs.forEach(function (k) {
+      var r = Math.floor(k / N), c = k % N;
+      var d = document.createElement('div');
+      d.className = 'fx';
+      d.style.left = (c * 12.5) + '%';
+      d.style.top = (r * 12.5) + '%';
+      d.style.backgroundPosition = (c * 100 / (N - 1)) + '% ' + (r * 100 / (N - 1)) + '%';
+      var dist = Math.sqrt((r - cr) * (r - cr) + (c - cc) * (c - cc));
+      d.style.setProperty('--d', Math.round(dist * 38) + 'ms');
+      fxEl.appendChild(d);
+      setTimeout(function () { if (d.parentNode) d.parentNode.removeChild(d); }, 1100);
+    });
+  }
+
+  // ---------- game flow ----------
+  function newGame() {
+    clearTimeout(overTimer);
+    fxEl.innerHTML = '';
+    grid = [];
+    for (var r = 0; r < N; r++) grid.push(new Array(N).fill(0));
+    streak = 0;
+    over = false;
+    overEl.hidden = true;
+    setScore(0, true);
+    newBatch();
+    slots.forEach(function (s) { s._p = undefined; });
+    renderBoard();
+    renderTray();
+  }
+  function gameOver() {
+    over = true;
+    overScoreEl.textContent = String(score);
+    overTimer = setTimeout(function () { overEl.hidden = false; }, 650);
+  }
+  function afterMove() {
+    if (pieces.every(function (p) { return !p; })) newBatch();
+    renderTray();
+    if (!pieces.some(function (p) { return p && fits(p); })) gameOver();
+  }
+  function place(i, r0, c0) {
+    var p = pieces[i];
+    var placed = p.cells.map(function (q) { return (r0 + q[0]) * N + c0 + q[1]; });
+    placed.forEach(function (k) { grid[Math.floor(k / N)][k % N] = 1; });
+    pieces[i] = null;
+
+    var ln = findLines();
+    var clear = {};
+    ln.rows.forEach(function (rr) { for (var cc = 0; cc < N; cc++) clear[rr * N + cc] = 1; });
+    ln.cols.forEach(function (cc) { for (var rr = 0; rr < N; rr++) clear[rr * N + cc] = 1; });
+    var idxs = Object.keys(clear).map(Number);
+    var lines = ln.rows.length + ln.cols.length;
+
+    var gain = p.cells.length;
+    if (lines) { streak++; gain += lines * lines * 10 * streak; } else { streak = 0; }
+    setScore(score + gain);
+
+    renderBoard();
+    popCells(placed);
+
+    if (lines) {
+      var cr = 0, cc2 = 0;
+      placed.forEach(function (k) { cr += Math.floor(k / N); cc2 += k % N; });
+      cr /= placed.length; cc2 /= placed.length;
+      spawnFx(idxs, cr, cc2);
+      idxs.forEach(function (k) { grid[Math.floor(k / N)][k % N] = 0; });
+      renderBoard();
+      var sub = streak > 1 ? 'комбо ×' + streak : (lines > 1 ? lines + ' ' + plural(lines) : '');
+      showToast('+' + gain, sub, streak >= 3 || lines >= 3);
+      if (streak > 1 || lines > 1) shake();
+    }
+    renderTray();
+    afterMove();
+  }
+
+  // ---------- dragging ----------
+  function geom() {
+    var r = cells[0].getBoundingClientRect();
+    return { left: r.left, top: r.top, cell: r.width };
+  }
+  function clearHints() {
+    hinted.forEach(function (k) { cells[k].classList.remove('hint'); cells[k].classList.remove('pre'); });
+    hinted = [];
+  }
+  function updateDrag(e) {
+    var G = geom();
+    var p = drag.p;
+    var gw = p.w * G.cell, gh = p.h * G.cell;
+    var cx = e.clientX;
+    var cy = e.clientY - (drag.touch ? G.cell * 1.4 + gh / 2 : 0);
+    var left = cx - gw / 2, top = cy - gh / 2;
+    drag.ghost.style.transform = 'translate(' + left + 'px,' + top + 'px)';
+    var col = Math.round((left - G.left) / G.cell), row = Math.round((top - G.top) / G.cell);
+    clearHints();
+    if (canPlace(p, row, col)) {
+      drag.target = [row, col];
+      var abs = p.cells.map(function (q) { return [row + q[0], col + q[1]]; });
+      abs.forEach(function (q) {
+        var k = q[0] * N + q[1];
+        cells[k].classList.add('hint');
+        hinted.push(k);
+      });
+      // lines that would burn: light them up in advance
+      var ln = findLines(abs);
+      ln.rows.forEach(function (rr) { for (var cc = 0; cc < N; cc++) { cells[rr * N + cc].classList.add('pre'); hinted.push(rr * N + cc); } });
+      ln.cols.forEach(function (cc) { for (var rr = 0; rr < N; rr++) { cells[rr * N + cc].classList.add('pre'); hinted.push(rr * N + cc); } });
+    } else {
+      drag.target = null;
+    }
+  }
+  function removeGhost(g) { if (g.parentNode) g.parentNode.removeChild(g); }
+  function endDrag(drop) {
+    if (!drag) return;
+    var d = drag;
+    drag = null;
+    clearHints();
+    var G = geom();
+    var g = d.ghost;
+    if (drop && d.target) {
+      g.style.transition = 'transform 0.09s ease-out, opacity 0.12s ease-out 0.03s';
+      g.style.transform = 'translate(' + (G.left + d.target[1] * G.cell) + 'px,' + (G.top + d.target[0] * G.cell) + 'px)';
+      g.style.opacity = '0';
+      setTimeout(function () { removeGhost(g); }, 160);
+      d.slot.classList.remove('lifted');
+      place(d.i, d.target[0], d.target[1]);
+    } else {
+      // fly back into the tray
+      var gp = d.slot.firstChild;
+      if (gp && gp.getBoundingClientRect) {
+        var pr = gp.getBoundingClientRect();
+        var s = pr.width / (d.p.w * G.cell);
+        g.style.transformOrigin = '0 0';
+        g.style.transition = 'transform 0.24s cubic-bezier(0.2, 0.8, 0.2, 1)';
+        g.style.transform = 'translate(' + pr.left + 'px,' + pr.top + 'px) scale(' + s + ')';
+        setTimeout(function () {
+          removeGhost(g);
+          if (!(drag && drag.slot === d.slot)) d.slot.classList.remove('lifted');
+        }, 250);
+      } else {
+        removeGhost(g);
+        d.slot.classList.remove('lifted');
+      }
+    }
+  }
+  slots.forEach(function (slot) {
+    slot.addEventListener('pointerdown', function (e) {
+      if (drag || over) return;
+      var i = parseInt(slot.dataset.i, 10);
+      var p = pieces[i];
+      if (!p) return;
+      e.preventDefault();
+      try { slot.setPointerCapture(e.pointerId); } catch (err) {}
+      var G = geom();
+      var ghost = document.createElement('div');
+      ghost.className = 'ghost';
+      ghost.appendChild(pieceEl(p, G.cell));
+      document.body.appendChild(ghost);
+      slot.classList.add('lifted');
+      drag = { i: i, p: p, slot: slot, ghost: ghost, target: null, touch: e.pointerType !== 'mouse', pid: e.pointerId };
+      updateDrag(e);
+    });
+    slot.addEventListener('pointermove', function (e) {
+      if (drag && drag.slot === slot && e.pointerId === drag.pid) updateDrag(e);
+    });
+    slot.addEventListener('pointerup', function (e) {
+      if (drag && drag.slot === slot && e.pointerId === drag.pid) endDrag(true);
+    });
+    slot.addEventListener('pointercancel', function () {
+      if (drag && drag.slot === slot) endDrag(false);
+    });
+    slot.addEventListener('contextmenu', function (e) { e.preventDefault(); });
+  });
+
+  // ---------- own photo ----------
+  function loadFile(f) {
+    if (!f) return;
+    if (f.type && f.type.indexOf('image/') !== 0) { showToast('нужна картинка'); return; }
+    var reader = new FileReader();
+    reader.onerror = function () { showToast('не открылось'); };
+    reader.onload = function () {
+      var img = new Image();
+      img.onload = function () {
+        try {
+          var c = document.createElement('canvas');
+          c.width = c.height = 800;
+          var g = c.getContext('2d');
+          var w = img.naturalWidth, h = img.naturalHeight, s = Math.min(w, h);
+          g.drawImage(img, (w - s) / 2, (h - s) / 2, s, s, 0, 0, 800, 800);
+          var d = g.getImageData(0, 0, 800, 800), a = d.data;
+          for (var i = 0; i < a.length; i += 4) {
+            var y = 0.299 * a[i] + 0.587 * a[i + 1] + 0.114 * a[i + 2];
+            y = 255 * Math.pow(y / 255, 0.85);
+            y = (y - 128) * 1.18 + 128;
+            y = y < 0 ? 0 : y > 255 ? 255 : y;
+            a[i] = a[i + 1] = a[i + 2] = y;
+          }
+          g.putImageData(d, 0, 0);
+          setImage(c.toDataURL('image/jpeg', 0.9));
+          btnOriginal.hidden = false;
+          reveal();
+          showToast('картинка готова');
+        } catch (err) {
+          showToast('не открылось');
+        }
+      };
+      img.onerror = function () { showToast('формат не подходит'); };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(f);
+  }
+  fileEl.addEventListener('change', function () {
+    var f = fileEl.files && fileEl.files[0];
+    fileEl.value = '';
+    loadFile(f);
+  });
+  wrapEl.addEventListener('dragover', function (e) { e.preventDefault(); });
+  wrapEl.addEventListener('drop', function (e) {
+    e.preventDefault();
+    var f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+    loadFile(f);
+  });
+  btnOriginal.addEventListener('click', function () {
+    setImage('');
+    btnOriginal.hidden = true;
+  });
+
+  btnRestart.addEventListener('click', newGame);
+  btnAgain.addEventListener('click', newGame);
+
+  // ---------- start ----------
+  setImage('');
+  buildBoard();
+  newGame();
+})();
+</script>
+
+</body></html>
